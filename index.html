@@ -1,0 +1,429 @@
+<title>Скрининг кандидатов в Telegram — настройка словами, решение кодом</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+  /* Нейтраль с уходом в синеву — не «серый по умолчанию». Два акцента: тёплый у живого
+     агента, стальной у кнопочного бота. Красный только для отсева. */
+  :root {
+    --ground: #F6F7F9; --card: #FFFFFF; --ink: #13181E; --ink-soft: #59636F;
+    --ink-faint: #8A939E; --line: #DFE4EA;
+    --agent: #A8512A; --agent-soft: #FBF0EA;
+    --bot: #2C5F8A; --bot-soft: #E9F0F7;
+    --stop: #A6402E; --stop-soft: #F9EAE6;
+    --pass: #2C6E52; --pass-soft: #E7F1EC;
+    --serif: Georgia, "Iowan Old Style", "Times New Roman", serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --ground: #0F1317; --card: #171C22; --ink: #E9EDF2; --ink-soft: #A2ACB8;
+      --ink-faint: #6E7884; --line: #262D35; --agent: #E0906A; --agent-soft: #241812;
+      --bot: #7FB2DA; --bot-soft: #16232E; --stop: #E08A76; --stop-soft: #2A1714;
+      --pass: #58A583; --pass-soft: #15251D; }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0F1317; --card: #171C22; --ink: #E9EDF2; --ink-soft: #A2ACB8;
+    --ink-faint: #6E7884; --line: #262D35; --agent: #E0906A; --agent-soft: #241812;
+    --bot: #7FB2DA; --bot-soft: #16232E; --stop: #E08A76; --stop-soft: #2A1714;
+    --pass: #58A583; --pass-soft: #15251D;
+  }
+  :root[data-theme="light"] {
+    --ground: #F6F7F9; --card: #FFFFFF; --ink: #13181E; --ink-soft: #59636F;
+    --ink-faint: #8A939E; --line: #DFE4EA; --agent: #A8512A; --agent-soft: #FBF0EA;
+    --bot: #2C5F8A; --bot-soft: #E9F0F7; --stop: #A6402E; --stop-soft: #F9EAE6;
+    --pass: #2C6E52; --pass-soft: #E7F1EC;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--sans);
+         font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 46px 22px 70px;
+          display: flex; flex-direction: column; gap: 40px; }
+
+  .метка { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint); }
+  h1 { font-family: var(--serif); font-size: clamp(27px, 4.6vw, 40px); line-height: 1.15;
+       margin: 10px 0 0; font-weight: 400; letter-spacing: -.01em; text-wrap: balance; }
+  h1 em { font-style: italic; color: var(--agent); }
+  .лид { font-size: 17px; color: var(--ink-soft); max-width: 64ch; margin: 14px 0 0; }
+  .лид b { color: var(--ink); font-weight: 600; }
+  .цифры { display: flex; flex-wrap: wrap; gap: 12px 30px; margin-top: 20px; }
+  .цифра { display: flex; flex-direction: column; }
+  .цифра .ц { font-family: var(--serif); font-size: 25px; line-height: 1.1;
+              font-variant-numeric: tabular-nums; }
+  .цифра .п { font-size: 12.5px; color: var(--ink-faint); }
+
+  /* «Что это» — самое начало. Человек должен за пять секунд понять, что инструментов
+     ДВА и чем они друг от друга отличаются, ещё до всякой механики. */
+  .это { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 22px; }
+  @media (max-width: 700px) { .это { grid-template-columns: 1fr; } }
+  .это > div { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+               padding: 16px 17px; display: flex; flex-direction: column; gap: 6px; }
+  .это > div.а { border-left: 3px solid var(--agent); }
+  .это > div.б { border-left: 3px solid var(--bot); }
+  .это .имя { font-family: var(--serif); font-size: 18px; }
+  .это .имя span { font-family: var(--sans); font-size: 12px; letter-spacing: .06em;
+                   text-transform: uppercase; display: block; margin-bottom: 3px; }
+  .это.а .имя span { color: var(--agent); }
+  .это > div.а .имя span { color: var(--agent); }
+  .это > div.б .имя span { color: var(--bot); }
+  .это p { margin: 0; font-size: 14px; color: var(--ink-soft); }
+  .это .цена { margin-top: 2px; }
+
+  /* Переключатель исходов. Anto: «видно только отсев, а положительный вариант?» —
+     но раздувать страницу двумя цепочками нельзя, поэтому один переключатель на обе. */
+  .исходы { display: inline-flex; gap: 0; border: 1px solid var(--line); border-radius: 999px;
+            overflow: hidden; margin-top: 14px; background: var(--card); }
+  .исходы button { border: 0; background: none; font-family: var(--sans); font-size: 13.5px;
+                   padding: 8px 15px; cursor: pointer; color: var(--ink-soft); }
+  .исходы button[aria-pressed="true"] { background: var(--ink); color: var(--ground);
+                                        font-weight: 600; }
+  .исходы button:focus-visible { outline: 2px solid var(--bot); outline-offset: -2px; }
+  :root .вар-да, :root .вар-нет { display: none; }
+  body[data-исход="да"] .вар-да, body[data-исход="нет"] .вар-нет { display: flex; }
+
+  h2 { font-family: var(--serif); font-size: 22px; font-weight: 400; margin: 0; }
+  h2 small { font-family: var(--sans); font-size: 12px; letter-spacing: .07em;
+             text-transform: uppercase; display: block; margin-bottom: 5px; }
+  h2.а small { color: var(--agent); }
+  h2.б small { color: var(--bot); }
+  .пояс { font-size: 14.5px; color: var(--ink-soft); max-width: 70ch; margin: 8px 0 0; }
+
+  /* Три колонки: настройка → что видит кандидат → что получает эйчар. Разные материалы
+     нарочно: форма, пузырь переписки, строка отчёта. Читается без клика. */
+  .цепочка { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-top: 16px;
+             align-items: start; }
+  @media (max-width: 860px) { .цепочка { grid-template-columns: 1fr; } }
+  .шаг { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .шаг > .кто { font-size: 11.5px; letter-spacing: .07em; text-transform: uppercase;
+                color: var(--ink-faint); }
+
+  .форма { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+           padding: 14px 15px; display: flex; flex-direction: column; gap: 10px; }
+  .поле { display: flex; flex-direction: column; gap: 3px; }
+  .поле .н { font-size: 11.5px; color: var(--ink-faint); }
+  .поле .з { font-size: 14px; }
+  .поле.режет { background: var(--stop-soft); border-radius: 7px; padding: 7px 9px;
+                margin: 0 -4px; }
+  .поле.режет .н, .поле.режет .з { color: var(--stop); }
+  .поле.режет .з { font-weight: 600; }
+  .вар { font-size: 13.5px; color: var(--ink-soft); }
+  .вар b { color: var(--stop); font-weight: 600; }
+
+  .чат { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+         padding: 14px 15px; display: flex; flex-direction: column; gap: 9px; }
+  .пузырь { background: var(--bot-soft); border-radius: 12px 12px 12px 4px; padding: 10px 12px;
+            font-size: 14px; }
+  .пузырь.свой { background: var(--agent-soft); border-radius: 12px 12px 4px 12px;
+                 align-self: flex-end; max-width: 92%; }
+  .шагстрока { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); }
+  .кн { border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font-size: 13px;
+        color: var(--ink-soft); background: var(--ground); text-align: center; }
+  .кн.режет { border-color: var(--stop); color: var(--stop); }
+  .кн.выбран { border-color: var(--pass); color: var(--pass); background: var(--pass-soft); }
+
+  .итог { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+          padding: 14px 15px; font-size: 14px; display: flex; flex-direction: column; gap: 7px; }
+  .итог .верх { font-weight: 600; color: var(--stop); }
+  .итог .верх.ок { color: var(--pass); }
+  .итог .строка { color: var(--ink-soft); font-size: 13.5px; }
+  .итог .цитата { font-family: var(--mono); font-size: 12.5px; background: var(--ground);
+                  border-left: 3px solid var(--line); padding: 7px 10px; color: var(--ink); }
+
+  .вывод { border-left: 3px solid var(--agent); padding: 2px 0 2px 15px; font-size: 15px;
+           color: var(--ink-soft); max-width: 72ch; }
+  .вывод b { color: var(--ink); font-weight: 600; }
+  .вывод.б { border-left-color: var(--bot); }
+
+  .умеет { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 22px; margin-top: 14px;
+           list-style: none; padding: 0; }
+  @media (max-width: 700px) { .умеет { grid-template-columns: 1fr; } }
+  .умеет li { font-size: 14.5px; color: var(--ink-soft); padding-left: 18px; position: relative; }
+  .умеет li::before { content: "—"; position: absolute; left: 0; color: var(--ink-faint); }
+  .умеет b { color: var(--ink); font-weight: 600; }
+
+  .двери { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+  @media (max-width: 720px) { .двери { grid-template-columns: 1fr; } }
+  .дверь { background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+           padding: 20px; display: flex; flex-direction: column; gap: 11px;
+           position: relative; overflow: hidden; }
+  .дверь::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; }
+  .дверь.а::before { background: var(--agent); }
+  .дверь.б::before { background: var(--bot); }
+  .дверь h3 { font-family: var(--serif); font-size: 19px; margin: 0; font-weight: 400; }
+  .дверь p { margin: 0; font-size: 14px; color: var(--ink-soft); }
+  .цена { font-family: var(--mono); font-size: 12.5px; color: var(--ink-faint); }
+  .кнопка { margin-top: auto; display: inline-flex; align-items: center; justify-content: center;
+            text-decoration: none; font-size: 15px; font-weight: 600; padding: 12px 16px;
+            border-radius: 10px; color: #fff; }
+  .дверь.а .кнопка { background: var(--agent); }
+  .дверь.б .кнопка { background: var(--bot); }
+  .кнопка:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+  .как { font-size: 12.5px; color: var(--ink-faint); }
+  .как code { font-family: var(--mono); font-size: 12px; background: var(--ground);
+              border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; }
+  .ещё { display: flex; flex-wrap: wrap; gap: 7px; }
+  .ещё a { font-size: 12.5px; text-decoration: none; padding: 5px 10px; border-radius: 999px;
+           border: 1px solid var(--line); color: var(--bot); background: var(--bot-soft); }
+
+  .карточка { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+              padding: 16px 18px; font-family: var(--mono); font-size: 12.5px; line-height: 1.7;
+              white-space: pre-wrap; overflow-x: auto; color: var(--ink-soft); margin-top: 14px; }
+  .карточка b { color: var(--pass); font-weight: 600; }
+  .карточка i { color: var(--agent); font-style: normal; }
+
+  footer { border-top: 1px solid var(--line); padding-top: 18px; font-size: 13.5px;
+           color: var(--ink-faint); display: flex; flex-direction: column; gap: 7px; }
+  footer b { color: var(--ink-soft); font-weight: 600; }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <div class="метка">Рабочий прототип · Telegram</div>
+
+    <h1>Эйчар описывает отбор <em>обычными словами</em> — а решение принимает код</h1>
+    <p class="лид">Это два инструмента для отбора кандидатов в Telegram. Оба ведут человека
+      по анкете вакансии, отсеивают неподходящих и присылают эйчару готовую карточку с
+      решением. Вопросы и условия отсева правит <b>сам эйчар, без разработчика</b>.</p>
+
+    <div class="это">
+      <div class="а">
+        <div class="имя"><span>Инструмент 1</span>ИИ-агент — работает как эйчар</div>
+        <p>Сам пишет кандидату первым и переписывается с ним словами: понимает свободный
+          текст, голосовые, оговорки и встречные вопросы. Здесь — вакансия ассистента,
+          самая короткая из шести.</p>
+        <p class="цена">около 1 ¢ за кандидата</p>
+      </div>
+      <div class="б">
+        <div class="имя"><span>Инструмент 2</span>Кнопочный бот — анкета по ссылке</div>
+        <p>Кандидат приходит сам по ссылке из объявления и отвечает кнопками. Нейросеть не
+          участвует, поэтому поток любого размера бесплатный.</p>
+        <p class="цена">0 ₽ за кандидата</p>
+      </div>
+    </div>
+    <div class="цифры">
+      <div class="цифра"><span class="ц">2</span><span class="п">инструмента, настройка общая</span></div>
+      <div class="цифра"><span class="ц">6</span><span class="п">вакансий заведено</span></div>
+      <div class="цифра"><span class="ц">0 ₽</span><span class="п">кандидат у бота</span></div>
+      <div class="цифра"><span class="ц">~1 ¢</span><span class="п">кандидат у агента</span></div>
+      <div class="цифра"><span class="ц">247</span><span class="п">автопроверок в сборке</span></div>
+    </div>
+  </header>
+
+  <section>
+    <h2 class="а"><small>Как работает ИИ-агент</small>Кандидат отвечает словами — как живому человеку</h2>
+    <p class="пояс">Условие отсева эйчар пишет по-русски, а не формулой. Кандидат отвечает
+      как хочет: с оговорками, уговорами, голосовым сообщением.</p>
+    <div class="исходы"><button data-исход="да">Кандидат подходит</button><button
+      data-исход="нет" aria-pressed="true">Кандидат не подходит</button></div>
+
+    <div class="цепочка">
+      <div class="шаг">
+        <div class="кто">1 · Эйчар вписал в пульт</div>
+        <div class="форма">
+          <div class="поле"><span class="н">вопрос кандидату</span>
+            <span class="з">Сколько вам лет?</span></div>
+          <div class="поле"><span class="н">что считать верным ответом</span>
+            <span class="з">назвал свой возраст</span></div>
+          <div class="поле режет"><span class="н">отсеивать, если</span>
+            <span class="з">младше 18 лет</span></div>
+        </div>
+      </div>
+      <div class="шаг">
+        <div class="кто">2 · Кандидат написал сам</div>
+        <div class="чат вар-нет">
+          <div class="пузырь">Сколько вам лет?</div>
+          <div class="пузырь свой">Мне 17, но я очень ответственный, паспорт есть,
+            могу хоть завтра выйти 🙂</div>
+        </div>
+        <div class="чат вар-да">
+          <div class="пузырь">Сколько вам лет?</div>
+          <div class="пузырь свой">26 недавно исполнилось, права и своя машина есть</div>
+        </div>
+      </div>
+      <div class="шаг">
+        <div class="кто">3 · Эйчару пришло</div>
+        <div class="итог вар-нет">
+          <div class="верх">⛔ НЕ ПРОШЁЛ · Курьер</div>
+          <div class="строка">Сработало условие вакансии: «младше 18 лет»</div>
+          <div class="цитата">его слова: «Мне 17»</div>
+        </div>
+        <div class="итог вар-да">
+          <div class="верх ок">✅ ПРОШЁЛ ОТБОР · Курьер</div>
+          <div class="строка">Возраст засчитан, ни одно условие отсева не сработало.
+            Агент пошёл к следующему вопросу.</div>
+          <div class="цитата">его слова: «26 недавно исполнилось»</div>
+        </div>
+      </div>
+    </div>
+
+    <p class="вывод" style="margin-top:16px">Нейросеть здесь только <b>разбирает
+      сказанное</b>. Решение принимает код — поэтому агента нельзя уговорить, а в карточке
+      всегда стоит <b>цитата-доказательство</b>, а не «нейросеть так решила».</p>
+  </section>
+
+  <section>
+    <h2 class="б"><small>Как работает кнопочный бот</small>Кандидат приходит по ссылке и жмёт кнопки</h2>
+    <p class="пояс">Тот же эйчар, тот же экран настройки. Отличие в том, что вариантов ответа
+      он пишет сам и помечает те, которые не подходят.</p>
+    <div class="исходы"><button data-исход="да">Кандидат подходит</button><button
+      data-исход="нет" aria-pressed="true">Кандидат не подходит</button></div>
+
+    <div class="цепочка">
+      <div class="шаг">
+        <div class="кто">1 · Эйчар вписал в пульт</div>
+        <div class="форма">
+          <div class="поле"><span class="н">вопрос кандидату</span>
+            <span class="з">Готовы работать по вечерам и в выходные?</span></div>
+          <div class="поле"><span class="н">варианты ответа</span>
+            <span class="вар">Да, готов · Только по вечерам · Только по выходным ·
+              <b>Могу только днём в будни — не подходит</b></span></div>
+        </div>
+      </div>
+      <div class="шаг">
+        <div class="кто">2 · Кандидат увидел в Telegram</div>
+        <div class="чат вар-нет">
+          <div class="пузырь">
+            <div class="шагстрока">Шаг 3 из 6 ▰▰▰▱▱▱</div>
+            Готовы работать по вечерам и в выходные?
+          </div>
+          <div class="кн">Да, готов</div>
+          <div class="кн">Только по вечерам</div>
+          <div class="кн">Только по выходным</div>
+          <div class="кн режет">👆 Могу только днём в будни</div>
+        </div>
+        <div class="чат вар-да">
+          <div class="пузырь">
+            <div class="шагстрока">Шаг 3 из 6 ▰▰▰▱▱▱</div>
+            Готовы работать по вечерам и в выходные?
+          </div>
+          <div class="кн выбран">👆 Да, готов</div>
+          <div class="кн">Только по вечерам</div>
+          <div class="кн">Только по выходным</div>
+          <div class="кн">Могу только днём в будни</div>
+        </div>
+      </div>
+      <div class="шаг">
+        <div class="кто">3 · Эйчару пришло</div>
+        <div class="итог вар-нет">
+          <div class="верх">⛔ НЕ ПРОШЁЛ · Курьер</div>
+          <div class="строка">Вопрос 3: выбрал «Могу только днём в будни» — этот ответ
+            помечен «не подходит»</div>
+          <div class="строка">Анкету довели до конца, попрощались один раз.</div>
+        </div>
+        <div class="итог вар-да">
+          <div class="верх ок">✅ ПРОШЁЛ ОТБОР · Курьер</div>
+          <div class="строка">Ни один выбранный ответ не помечен «не подходит» —
+            кандидат прошёл все шесть шагов.</div>
+          <div class="строка">Эйчару ушли все ответы одним сообщением, образец ниже.</div>
+        </div>
+      </div>
+    </div>
+
+    <p class="вывод б" style="margin-top:16px">Здесь нейросеть <b>не вызывается ни разу</b>:
+      отбор считает код. Поэтому поток любого размера стоит ноль, а кандидат видит,
+      сколько шагов осталось — и реже бросает анкету на середине.</p>
+  </section>
+
+  <section>
+    <h2>Когда какой из двух</h2>
+    <p class="пояс"><b>Агент</b> — когда нужно достать человека и разговорить: он пишет
+      первым, понимает оговорки и голосовые, умеет ответить на встречный вопрос. Около цента
+      за кандидата.<br>
+      <b>Бот</b> — когда откликов много и решают факты: человек приходит по ссылке из
+      объявления и отвечает кнопками. Ноль рублей.<br>
+      <b>Настройка общая</b> — эйчар описывает вакансию один раз.</p>
+  </section>
+
+  <section>
+    <h2>Что эйчар меняет сам, без разработчика</h2>
+    <ul class="умеет">
+      <li><b>вопросы</b> и их порядок</li>
+      <li><b>что считать верным ответом</b> — своими словами</li>
+      <li><b>условие отсева</b> — тоже словами: «нет смартфона с интернетом»</li>
+      <li><b>варианты ответа</b> и какой из них отсеивает</li>
+      <li><b>«можно выбрать несколько»</b> — когда подходит любое из перечисленного</li>
+      <li><b>тексты</b> приветствия и двух прощаний</li>
+      <li><b>напоминать молчуну</b> или нет</li>
+      <li><b>через сколько дней</b> можно пройти заново</li>
+      <li><b>оценивать ли развёрнутый ответ нейросетью</b> — и что считать хорошим</li>
+      <li><b>включить и выключить набор</b> — закрытая вакансия отвечает сама</li>
+    </ul>
+    <p class="пояс" style="margin-top:14px">Рядом с каждой правкой экран пишет следствие:
+      «Откажем тем, кто выбрал…» — и показывает, что именно увидит кандидат. До запуска,
+      а не после первых потерянных откликов.</p>
+  </section>
+
+  <section>
+    <h2>Попробуйте сами</h2>
+    <p class="пояс">Оба канала отвечают из настоящего Telegram — это не запись экрана.</p>
+    <div class="двери">
+      <div class="дверь а">
+        <h3>Поговорить с ИИ-агентом</h3>
+        <p>Пишет первым, понимает свободный текст и голосовые, ведёт по анкете вакансии.</p>
+        <p class="цена">около одного цента на кандидата</p>
+        <a class="кнопка" href="https://t.me/Masha2026HR?text=%D0%90%D1%81%D1%81%D0%B8%D1%81%D1%82%D0%B5%D0%BD%D1%82">Поговорить с ИИ-агентом →</a>
+        <p class="как">Откроется чат, и в поле ввода уже будет стоять слово
+          <code>Ассистент</code> — название вакансии. Просто отправьте его, и агент начнёт
+          разговор. Анкета короткая, две-три реплики.</p>
+      </div>
+      <div class="дверь б">
+        <h3>Пройти анкету у бота</h3>
+        <p>Ссылка ведёт сразу в нужную вакансию — так же, как из объявления на работном сайте.</p>
+        <p class="цена">0 ₽ на кандидата</p>
+        <a class="кнопка" href="https://t.me/testos18_bot?start=kurer">Пройти анкету курьера →</a>
+        <p class="как">Откроется чат и сразу первый вопрос — ничего писать не нужно.
+          Другие анкеты:</p>
+        <div class="ещё">
+          <a href="https://t.me/testos18_bot?start=assistent">ассистент — 5 вопросов</a>
+          <a href="https://t.me/testos18_bot?start=strim">ведущий трансляций</a>
+          <a href="https://t.me/testos18_bot?start=povar">повар</a>
+          <a href="https://t.me/testos18_bot?start=operator-koll-centra">оператор колл-центра</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Что получает эйчар после анкеты — одним сообщением</h2>
+    <div class="карточка"><b>✅ ПРОШЁЛ ОТБОР · Курьер</b>
+Иван · @ivan
+
+1. Сколько вам лет?
+    25–39
+2. Есть смартфон с интернетом?
+    Да, есть
+3. Готовы работать по вечерам и в выходные?
+    Да, готов
+4. Сколько рассчитываете получать за час работы?
+    300–500 ₽
+5. Какой транспорт у вас есть для работы?
+    Личный автомобиль, Обычный велосипед
+6. Был ли опыт доставки еды или посылок?
+    Возил еду два года, знаю город
+    <i>ИИ: 10 из 10 — назван релевантный опыт и знание района</i></div>
+    <p class="пояс" style="margin-top:12px">Не поток сообщений по ходу разговора, а один
+      итог в конце: решение, все ответы, доказательство отсева. Развёрнутый ответ нейросеть
+      может оценить отдельно — на «прошёл / не прошёл» эта оценка не влияет, это справка.</p>
+  </section>
+
+  <footer>
+    <div><b>Прототип на живой инфраструктуре.</b> Экран настройки живёт внутри контура вместе
+      с перепиской кандидатов и наружу не смотрит — покажу его на созвоне.</div>
+    <div>Если бот молчит дольше минуты — напишите, подниму.</div>
+  </footer>
+
+</div>
+
+<script>
+  /* Один переключатель на обе цепочки: нажал в любой — переключились сразу все,
+     чтобы не листать страницу дважды ради второго исхода. */
+  document.body.dataset.исход = "нет";
+  document.addEventListener("click", е => {
+    const кн = е.target.closest("[data-исход]");
+    if (!кн) return;
+    const исход = кн.dataset.исход;
+    document.body.dataset.исход = исход;
+    document.querySelectorAll("[data-исход]").forEach(б =>
+      б.setAttribute("aria-pressed", б.dataset.исход === исход));
+  });
+</script>
